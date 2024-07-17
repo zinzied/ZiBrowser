@@ -63,6 +63,9 @@
 To run the browser, execute the script using Python. Ensure that PyQt5 and other dependencies are installed. The browser window will open, allowing users to navigate the web, manage downloads, view history, and configure settings.
 
 ```bash
+pip install -r requirements.txt
+```
+```bash
 python zibrowser.py
 ```
 
