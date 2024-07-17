@@ -1,6 +1,6 @@
 import sys
 from PyQt5.QtCore import *
-from PyQt5.QtGui import QIcon
+from PyQt5.QtGui import QIcon, QDesktopServices
 from PyQt5.QtWidgets import *
 from PyQt5.QtWebEngineWidgets import *
 from PyQt5.QtNetwork import QNetworkProxy
@@ -80,6 +80,10 @@ class Browser(QMainWindow):
         delete_history_action = QAction(QIcon('images/delete.png'), 'Delete History', self)
         delete_history_action.triggered.connect(self.delete_history)
         settings_menu.addAction(delete_history_action)
+
+        about_action = QAction(QIcon('images/about.png'), 'About', self)
+        about_action.triggered.connect(self.show_about)
+        settings_menu.addAction(about_action)
 
         settings_btn.setMenu(settings_menu)
         navbar.addWidget(settings_btn)
@@ -266,6 +270,25 @@ class Browser(QMainWindow):
 
     def delete_all_cookies(self):
         self.profile.cookieStore().deleteAllCookies()
+
+    def show_about(self):
+        about_dialog = QDialog(self)
+        about_dialog.setWindowTitle("About ZiBrowser")
+        about_dialog.setFixedSize(300, 200)
+
+        layout = QVBoxLayout()
+
+        label = QLabel("ZiBrowser\nCreated by Zied Boughdir 2024")
+        label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(label)
+
+        github_link = QLabel('<a href="https://www.github.com/zinzied">GitHub Profile</a>')
+        github_link.setAlignment(Qt.AlignCenter)
+        github_link.setOpenExternalLinks(True)
+        layout.addWidget(github_link)
+
+        about_dialog.setLayout(layout)
+        about_dialog.exec_()
 
 app = QApplication(sys.argv)
 QApplication.setApplicationName("ZiBrowser")
