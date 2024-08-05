@@ -1,5 +1,8 @@
 ### ZiBrowser-
 ## Fast and Stable and not eats Rams xD
+
+   ![image](https://github.com/user-attachments/assets/49e67c4b-28aa-4158-ace8-0a98492c5e3d)
+
 ### Project Description: ZiBrowser
 
 **ZiBrowser** is a custom web browser built using PyQt5 and the Qt WebEngine framework. It provides a user-friendly interface with essential browsing features, including tabbed browsing, navigation controls, download management, history management, and settings configuration. The browser is designed to be lightweight yet functional, offering a familiar browsing experience with additional customization options.
