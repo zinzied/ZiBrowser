@@ -3,9 +3,9 @@ from PyQt5.QtCore import *
 from PyQt5.QtCore import QSettings
 from PyQt5.QtGui import QIcon, QDesktopServices
 from PyQt5.QtWidgets import *
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile
+from PyQt5.QtWebEngineWidgets import *
 from PyQt5.QtNetwork import QNetworkProxy
-from PyQt5.QtWebEngineCore import QWebEngineUrlRequestInterceptor
+from PyQt5.QtWebEngineCore import *
 import os
 
 class AdBlocker(QWebEngineUrlRequestInterceptor):
@@ -32,6 +32,20 @@ class Browser(QMainWindow):
         if not os.path.exists(cookies_path):
             os.makedirs(cookies_path)
         self.profile.setPersistentStoragePath(cookies_path)
+
+        # Configure web settings
+        self.settings = QWebEngineSettings.defaultSettings()
+        self.settings.setAttribute(QWebEngineSettings.PluginsEnabled, True)
+        self.settings.setAttribute(QWebEngineSettings.DnsPrefetchEnabled, True)
+        self.settings.setAttribute(QWebEngineSettings.PlaybackRequiresUserGesture, False)
+        self.settings.setAttribute(QWebEngineSettings.FullScreenSupportEnabled, True)
+        self.settings.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
+        self.settings.setAttribute(QWebEngineSettings.WebGLEnabled, True)
+        self.settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
+        self.settings.setAttribute(QWebEngineSettings.ShowScrollBars, True)
+        
+        # Set modern user agent
+        self.profile.setHttpUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -131,6 +145,14 @@ class Browser(QMainWindow):
             qurl = QUrl('')
 
         browser = QWebEngineView()
+        
+        # Configure page settings for video
+        page = QWebEnginePage(self.profile, browser)
+        browser.setPage(page)
+        
+        # Enable video fullscreen
+        page.fullScreenRequested.connect(lambda request: request.accept())
+        
         browser.setUrl(qurl)
         i = self.tabs.addTab(browser, label)
         self.tabs.setCurrentIndex(i)
@@ -404,6 +426,15 @@ class Browser(QMainWindow):
         # Set a different color scheme for private windows
         private_window.setStyleSheet("QMainWindow { background-color: #2b0b3f; }")
         private_window.show()
+
+    def handle_fullscreen(self, request):
+        request.accept()
+        if request.toggleOn():
+            self.tabs.currentWidget().setParent(None)
+            self.tabs.currentWidget().showFullScreen()
+        else:
+            self.tabs.currentWidget().setParent(self.tabs)
+            self.tabs.currentWidget().showNormal()
 
 app = QApplication(sys.argv)
 QApplication.setApplicationName("ZiBrowser")
