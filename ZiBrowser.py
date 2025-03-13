@@ -170,7 +170,7 @@ class Browser(QMainWindow):
         self.search_engine_selector.currentTextChanged.connect(self.change_search_engine)
         navbar.addWidget(self.search_engine_selector)
 
-        self.add_new_tab(QUrl('https://www.google.com'), 'Google')
+        self.add_new_tab(self.get_search_engine_url(), self.current_search_engine)
 
         # Download manager
         self.downloads_list = QListWidget()
@@ -183,19 +183,13 @@ class Browser(QMainWindow):
         # Setup performance profiles
         self.setup_performance_profiles()
 
+        # Configure error handling for WebEngine
+        self.page_error_handler = QWebEnginePage(self)
+        self.page_error_handler.javaScriptConsoleMessage = self.handle_js_console
+
     def add_new_tab(self, qurl=None, label="New Tab"):
-        if qurl is None:
-            # Use current search engine's homepage
-            if self.current_search_engine == 'Google':
-                qurl = QUrl('https://www.google.com')
-            elif self.current_search_engine == 'Bing':
-                qurl = QUrl('https://www.bing.com')
-            elif self.current_search_engine == 'DuckDuckGo':
-                qurl = QUrl('https://duckduckgo.com')
-            elif self.current_search_engine == 'Yahoo':
-                qurl = QUrl('https://www.yahoo.com')
-            elif self.current_search_engine == 'Ecosia':
-                qurl = QUrl('https://www.ecosia.org')
+        if qurl is None or not isinstance(qurl, QUrl):
+            qurl = self.get_search_engine_url()
         
         browser = QWebEngineView()
         
@@ -216,12 +210,19 @@ class Browser(QMainWindow):
         # Connect the downloadRequested signal
         browser.page().profile().downloadRequested.connect(self.handle_download)
 
+        # Inject compatibility polyfills
+        self.inject_compatibility_polyfills(browser)
+        
         # Inject JavaScript polyfill for replaceAll
         browser.page().runJavaScript("""
             if (!String.prototype.replaceAll) {
                 String.prototype.replaceAll = function(search, replacement) {
-                    var target = this;
-                    return target.split(search).join(replacement);
+                    try {
+                        return this.split(search).join(replacement);
+                    } catch (e) {
+                        console.warn('replaceAll error:', e);
+                        return this;
+                    }
                 };
             }
         """)
@@ -700,6 +701,67 @@ class Browser(QMainWindow):
             QMessageBox.information(self, "Success", f"Added search engine: {name}")
         else:
             QMessageBox.warning(self, "Error", "Please enter valid name and URL template")
+
+    def inject_compatibility_polyfills(self, browser):
+        polyfills = """
+        // Polyfill for replaceChildren
+        if (!Element.prototype.replaceChildren) {
+            Element.prototype.replaceChildren = function(...nodes) {
+                while (this.lastChild) {
+                    this.removeChild(this.lastChild);
+                }
+                if (nodes.length) {
+                    this.append(...nodes);
+                }
+            };
+        }
+
+        // Polyfill for modern array methods
+        if (!Array.prototype.at) {
+            Array.prototype.at = function(index) {
+                return index >= 0 ? this[index] : this[this.length + index];
+            };
+        }
+
+        // Error handling for Promise rejections
+        window.addEventListener('unhandledrejection', function(event) {
+            event.preventDefault();
+            console.warn('Unhandled promise rejection:', event.reason);
+        });
+
+        // General error handler
+        window.onerror = function(msg, url, line, col, error) {
+            console.warn('Caught error:', msg);
+            return false;
+        };
+        """
+        browser.page().runJavaScript(polyfills)
+
+    def handle_js_console(self, level, message, line, source_id):
+        """Handle JavaScript console messages"""
+        levels = ['Info', 'Warning', 'Error']
+        level_name = levels[level] if 0 <= level < len(levels) else 'Unknown'
+        
+        if level > 0:  # Only log warnings and errors
+            print(f"JavaScript {level_name}: {message}")
+            print(f"Location: Line {line}, Source: {source_id}")
+
+    def get_search_engine_url(self):
+        """Get the homepage URL for the current search engine"""
+        url = 'https://www.google.com'  # Default URL
+        
+        if self.current_search_engine == 'Google':
+            url = 'https://www.google.com'
+        elif self.current_search_engine == 'Bing':
+            url = 'https://www.bing.com'
+        elif self.current_search_engine == 'DuckDuckGo':
+            url = 'https://duckduckgo.com'
+        elif self.current_search_engine == 'Yahoo':
+            url = 'https://www.yahoo.com'
+        elif self.current_search_engine == 'Ecosia':
+            url = 'https://www.ecosia.org'
+        
+        return QUrl(url)
 
 app = QApplication(sys.argv)
 QApplication.setApplicationName("ZiBrowser")
