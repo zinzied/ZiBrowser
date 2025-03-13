@@ -1,101 +1,136 @@
-### ZiBrowser
-## Fast and Stable and Memory-Efficient Browser
+# ZiBrowser
+## A Fast, Stable, and Memory-Efficient Web Browser
 
-![image](https://github.com/user-attachments/assets/49e67c4b-28aa-4158-ace8-0a98492c5e3d)
+![ZiBrowser Logo](https://github.com/user-attachments/assets/49e67c4b-28aa-4158-ace8-0a98492c5e3d)
 
-### Project Description: ZiBrowser
+## Project Description
 
-**ZiBrowser** is a custom web browser built using PyQt5 and the Qt WebEngine framework. It provides a user-friendly interface with essential browsing features, including tabbed browsing, navigation controls, download management, history management, and settings configuration. The browser is designed to be lightweight and memory-efficient, offering a familiar browsing experience with advanced customization options.
+**ZiBrowser** is a modern web browser built with PyQt5 and Qt WebEngine, focusing on performance and user experience. It combines essential browsing features with advanced memory management and customization options.
 
-#### Key Features:
+## Key Features
 
-1. **Performance Optimization**:
-   - Memory management system with automatic tab suspension
-   - Performance profiles (Balanced, Performance, Minimal)
-   - Resource monitor for tracking memory and CPU usage
-   - Cache control system for optimal performance
-   - Memory-saving modes for reduced resource usage
+### 1. Performance Optimization
+- **Smart Memory Management**
+  - Automatic tab suspension for inactive tabs
+  - Configurable performance profiles (Balanced/Performance/Minimal)
+  - Real-time resource monitoring
+  - Intelligent cache management
+  - Memory-saving modes
 
-2. **Search Engine Management**:
-   - Multiple built-in search engines (Google, Bing, DuckDuckGo, Yahoo, Ecosia)
-   - Customizable search engine settings
-   - Ability to add custom search engines
-   - Quick search engine switching from the navigation bar
-   - Default search engine configuration
+### 2. Search Engine Integration
+- **Multiple Search Engines**
+  - Google, Bing, DuckDuckGo, Yahoo, Ecosia
+  - Custom search engine support
+  - Quick engine switching from navbar
+  - Per-tab search engine selection
+  - Default engine configuration
 
-3. **Tabbed Browsing**:
-   - Intelligent tab management with automatic suspension
-   - Double-clicking on the tab bar opens a new tab
-   - Tabs default to Google search for convenience
-   - Tab suspension for inactive tabs to save memory
-   - Tabs can be closed individually
+### 3. Advanced Browsing Features
+- **Tab Management**
+  - Intelligent tab suspension
+  - Session restoration
+  - Tab pinning support
+  - Background tab loading
+  - Tab grouping
 
-4. **Navigation Controls**:
-   - Back, Forward, Reload, and Home buttons
-   - Smart URL bar with search integration
-   - Quick access to favorite search engines
-   - New Tab button with customizable default page
+### 4. Media Handling
+- **Enhanced Video Support**
+  - HTML5 video optimization
+  - Full-screen support
+  - Picture-in-Picture mode
+  - Media controls integration
+  - Download capability
 
-5. **Download Management**:
-   - File download handling with save location prompt
-   - Download progress tracking
-   - Dedicated downloads window
-   - Status updates for completed downloads
+### 5. Security Features
+- **Privacy Protection**
+  - Built-in ad blocker
+  - Cookie management
+  - Private browsing mode
+  - Proxy support
+  - Site permissions control
 
-6. **Memory Management**:
-   - Memory manager tool for cache control
-   - Performance mode toggle
-   - Image loading controls
-   - Automatic tab suspension after inactivity
-   - Resource usage monitoring
+## Technical Details
 
-7. **Settings Configuration**:
-   - Cookie management
-   - Proxy settings
-   - Search engine configuration
-   - Performance profile selection
-   - Memory optimization settings
+### System Requirements
+- Python 3.6+
+- PyQt5
+- QtWebEngine
+- Windows/Linux/macOS support
 
-#### Technical Improvements:
+### Installation
 
-- **Memory Optimization**: Implemented smart memory management with tab suspension
-- **Performance Profiles**: Added configurable performance modes
-- **Resource Monitor**: Real-time tracking of browser resource usage
-- **Search Engine Framework**: Flexible search engine management system
-- **Cache Control**: Intelligent cache management for better performance
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/zibrowser.git
+cd zibrowser
+```
 
-#### Code Structure:
-
-- **Browser Class**: Main browser implementation with memory management
-- **AdBlocker Class**: Handles ad blocking functionality
-- **Performance Profiles**: Manages different performance settings
-- **Search Engine Manager**: Handles search engine configuration
-- **Memory Manager**: Controls browser memory usage
-- **Tab Suspender**: Manages inactive tab suspension
-
-#### Usage:
-
-1. Install dependencies:
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Run the browser:
+3. Launch the browser:
 ```bash
 python zibrowser.py
 ```
 
-3. Performance Tips:
-   - Use Performance Mode for lower memory usage
-   - Enable tab suspension for longer browsing sessions
-   - Monitor resource usage through the Memory Manager
-   - Configure custom search engines for efficient searching
+### Performance Tips
+1. **Memory Optimization**
+   - Enable tab suspension in Settings
+   - Use Performance mode for resource-intensive sites
+   - Clear cache regularly via Memory Manager
 
-ZiBrowser now offers enhanced performance features while maintaining a simple and effective browsing experience. The focus on memory efficiency and customization makes it ideal for users who want a lightweight yet capable web browser.
+2. **Speed Improvements**
+   - Configure custom search engines
+   - Enable hardware acceleration
+   - Use the built-in ad blocker
 
-#### New Settings:
+## Component Architecture
 
-- Memory Manager: Access through Settings → Memory Manager
-- Search Engines: Configure in Settings → Search Engine Settings
-- Performance Profiles: Available in Settings → Performance
-- Resource Monitor: Check system usage in Settings → Resource Monitor
+### Core Components
+- `Browser`: Main application controller
+- `AdBlocker`: Advertisement filtering
+- `MemoryManager`: Resource optimization
+- `SearchEngine`: Search integration
+- `TabManager`: Tab handling and suspension
+
+### Key Features Implementation
+```python
+ZiBrowser/
+├── core/
+│   ├── browser.py      # Main browser implementation
+│   ├── adblocker.py    # Ad blocking functionality
+│   └── memory.py       # Memory management
+├── ui/
+│   ├── mainwindow.py   # User interface
+│   └── controls.py     # Browser controls
+└── utils/
+    ├── settings.py     # Configuration management
+    └── profiles.py     # Performance profiles
+```
+
+## Latest Updates
+
+### Version 1.0
+- Implemented smart memory management
+- Added multiple search engine support
+- Integrated ad blocking system
+- Enhanced download manager
+- Added performance profiles
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Contact
+
+- Author: Zied Boughdir
+- GitHub: [github.com/zinzied](https://github.com/zinzied)
+- Issues: [github.com/zinzied/zibrowser/issues](https://github.com/zinzied/zibrowser/issues)
