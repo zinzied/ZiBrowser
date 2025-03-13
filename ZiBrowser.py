@@ -21,6 +21,15 @@ class AdBlocker(QWebEngineUrlRequestInterceptor):
         if any(ad in url.lower() for ad in self.ad_domains):
             info.block(True)
 
+# Add this after your class definitions but before Browser class
+DEFAULT_SEARCH_ENGINES = {
+    'Google': 'https://www.google.com/search?q={}',
+    'Bing': 'https://www.bing.com/search?q={}',
+    'DuckDuckGo': 'https://duckduckgo.com/?q={}',
+    'Yahoo': 'https://search.yahoo.com/search?p={}',
+    'Ecosia': 'https://www.ecosia.org/search?q={}'
+}
+
 class Browser(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -142,10 +151,26 @@ class Browser(QMainWindow):
         memory_manager_action.triggered.connect(self.show_memory_manager)
         settings_menu.addAction(memory_manager_action)
 
+        search_engine_settings_action = QAction(QIcon('images/search.png'), 'Search Engine Settings', self)
+        search_engine_settings_action.triggered.connect(self.show_search_engine_settings)
+        settings_menu.addAction(search_engine_settings_action)
+
         settings_btn.setMenu(settings_menu)
         navbar.addWidget(settings_btn)
 
-        self.add_new_tab(QUrl('http://www.google.com'), 'Homepage')
+        # Load search engine settings
+        self.settings = QSettings('ZiBrowser', 'Settings')
+        self.current_search_engine = self.settings.value('search_engine', 'Google')
+        self.search_engines = self.settings.value('search_engines', DEFAULT_SEARCH_ENGINES)
+        
+        # Add search engine selector to navbar
+        self.search_engine_selector = QComboBox()
+        self.search_engine_selector.addItems(self.search_engines.keys())
+        self.search_engine_selector.setCurrentText(self.current_search_engine)
+        self.search_engine_selector.currentTextChanged.connect(self.change_search_engine)
+        navbar.addWidget(self.search_engine_selector)
+
+        self.add_new_tab(QUrl('https://www.google.com'), 'Google')
 
         # Download manager
         self.downloads_list = QListWidget()
@@ -158,10 +183,20 @@ class Browser(QMainWindow):
         # Setup performance profiles
         self.setup_performance_profiles()
 
-    def add_new_tab(self, qurl=None, label="Blank"):
-        if qurl is None or not isinstance(qurl, QUrl):
-            qurl = QUrl('')
-
+    def add_new_tab(self, qurl=None, label="New Tab"):
+        if qurl is None:
+            # Use current search engine's homepage
+            if self.current_search_engine == 'Google':
+                qurl = QUrl('https://www.google.com')
+            elif self.current_search_engine == 'Bing':
+                qurl = QUrl('https://www.bing.com')
+            elif self.current_search_engine == 'DuckDuckGo':
+                qurl = QUrl('https://duckduckgo.com')
+            elif self.current_search_engine == 'Yahoo':
+                qurl = QUrl('https://www.yahoo.com')
+            elif self.current_search_engine == 'Ecosia':
+                qurl = QUrl('https://www.ecosia.org')
+        
         browser = QWebEngineView()
         
         # Configure page settings for video
@@ -224,7 +259,8 @@ class Browser(QMainWindow):
 
     def tab_open_doubleclick(self, i):
         if i == -1:
-            self.add_new_tab()
+            # Open Google in new tab when double-clicking
+            self.add_new_tab(QUrl('https://www.google.com'), 'Google')
 
     def current_tab_changed(self, i):
         qurl = self.tabs.currentWidget().url()
@@ -238,10 +274,22 @@ class Browser(QMainWindow):
         self.tabs.removeTab(i)
 
     def navigate_home(self):
-        self.tabs.currentWidget().setUrl(QUrl("http://www.google.com"))
+        # Update home button to use https
+        self.tabs.currentWidget().setUrl(QUrl("https://www.google.com"))
 
     def navigate_to_url(self):
         url = self.url_bar.text()
+        
+        # Check if the input is a URL or search term
+        if not url.startswith(('http://', 'https://', 'file://')):
+            # Check if it's a domain name
+            if '.' in url and ' ' not in url:
+                url = 'http://' + url
+            else:
+                # It's a search term
+                search_template = self.search_engines[self.current_search_engine]
+                url = search_template.format(QUrl.toPercentEncoding(url).data().decode())
+        
         self.tabs.currentWidget().setUrl(QUrl(url))
 
     def update_url(self, q):
@@ -604,6 +652,54 @@ class Browser(QMainWindow):
             
             for i in range(self.tabs.count()):
                 self.tabs.widget(i).reload()
+
+    def change_search_engine(self, engine_name):
+        self.current_search_engine = engine_name
+        self.settings.setValue('search_engine', engine_name)
+
+    def show_search_engine_settings(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Search Engine Settings")
+        dialog.setFixedSize(400, 300)
+        layout = QVBoxLayout()
+
+        # Default search engine selector
+        default_label = QLabel("Default Search Engine:")
+        layout.addWidget(default_label)
+        
+        engine_selector = QComboBox()
+        engine_selector.addItems(self.search_engines.keys())
+        engine_selector.setCurrentText(self.current_search_engine)
+        engine_selector.currentTextChanged.connect(self.change_search_engine)
+        layout.addWidget(engine_selector)
+
+        # Add custom search engine
+        add_label = QLabel("Add Custom Search Engine:")
+        layout.addWidget(add_label)
+        
+        name_input = QLineEdit()
+        name_input.setPlaceholderText("Search Engine Name")
+        layout.addWidget(name_input)
+        
+        url_input = QLineEdit()
+        url_input.setPlaceholderText("URL Template (use {} for search term)")
+        layout.addWidget(url_input)
+        
+        add_btn = QPushButton("Add Search Engine")
+        add_btn.clicked.connect(lambda: self.add_search_engine(name_input.text(), url_input.text()))
+        layout.addWidget(add_btn)
+
+        dialog.setLayout(layout)
+        dialog.exec_()
+
+    def add_search_engine(self, name, url_template):
+        if name and url_template and '{}' in url_template:
+            self.search_engines[name] = url_template
+            self.settings.setValue('search_engines', self.search_engines)
+            self.search_engine_selector.addItem(name)
+            QMessageBox.information(self, "Success", f"Added search engine: {name}")
+        else:
+            QMessageBox.warning(self, "Error", "Please enter valid name and URL template")
 
 app = QApplication(sys.argv)
 QApplication.setApplicationName("ZiBrowser")
