@@ -33,6 +33,11 @@ class Browser(QMainWindow):
             os.makedirs(cookies_path)
         self.profile.setPersistentStoragePath(cookies_path)
 
+        # Memory management settings
+        self.profile.setHttpCacheMaximumSize(100 * 1024 * 1024)  # 100MB cache limit
+        self.profile.setHttpCacheType(QWebEngineProfile.MemoryHttpCache)
+        self.profile.clearHttpCache()
+
         # Configure web settings
         self.settings = QWebEngineSettings.defaultSettings()
         self.settings.setAttribute(QWebEngineSettings.PluginsEnabled, True)
@@ -43,6 +48,9 @@ class Browser(QMainWindow):
         self.settings.setAttribute(QWebEngineSettings.WebGLEnabled, True)
         self.settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
         self.settings.setAttribute(QWebEngineSettings.ShowScrollBars, True)
+        self.settings.setAttribute(QWebEngineSettings.WebGLEnabled, False)  # Disable by default
+        self.settings.setAttribute(QWebEngineSettings.AutoLoadImages, True)
+        self.settings.setAttribute(QWebEngineSettings.JavascriptCanOpenWindows, False)
         
         # Set modern user agent
         self.profile.setHttpUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
@@ -130,6 +138,10 @@ class Browser(QMainWindow):
         dark_mode_action.triggered.connect(self.toggle_dark_mode)
         settings_menu.addAction(dark_mode_action)
 
+        memory_manager_action = QAction(QIcon('images/memory.png'), 'Memory Manager', self)
+        memory_manager_action.triggered.connect(self.show_memory_manager)
+        settings_menu.addAction(memory_manager_action)
+
         settings_btn.setMenu(settings_menu)
         navbar.addWidget(settings_btn)
 
@@ -139,6 +151,12 @@ class Browser(QMainWindow):
         self.downloads_list = QListWidget()
         self.downloads_list.setWindowTitle("Downloads")
         self.downloads_list.setFixedSize(400, 300)
+
+        # Setup tab suspender
+        self.setup_tab_suspender()
+
+        # Setup performance profiles
+        self.setup_performance_profiles()
 
     def add_new_tab(self, qurl=None, label="Blank"):
         if qurl is None or not isinstance(qurl, QUrl):
@@ -281,6 +299,10 @@ class Browser(QMainWindow):
         proxy_settings_btn = QPushButton("Proxy Settings")
         proxy_settings_btn.clicked.connect(self.show_proxy_settings)
         layout.addWidget(proxy_settings_btn)
+
+        memory_manager_btn = QPushButton("Memory Manager")
+        memory_manager_btn.clicked.connect(self.show_memory_manager)
+        layout.addWidget(memory_manager_btn)
 
         settings_dialog.setLayout(layout)
         settings_dialog.exec_()
@@ -435,6 +457,153 @@ class Browser(QMainWindow):
         else:
             self.tabs.currentWidget().setParent(self.tabs)
             self.tabs.currentWidget().showNormal()
+
+    def show_memory_manager(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Memory Manager")
+        dialog.setFixedSize(400, 300)
+        layout = QVBoxLayout()
+
+        # Memory info
+        mem_info = QLabel("Memory Management Tools")
+        layout.addWidget(mem_info)
+
+        # Clear memory button
+        clear_mem_btn = QPushButton("Clear Memory Cache")
+        clear_mem_btn.clicked.connect(self.clear_memory)
+        layout.addWidget(clear_mem_btn)
+
+        # Performance mode toggle
+        perf_mode = QCheckBox("Performance Mode (Reduces Memory Usage)")
+        perf_mode.setChecked(not self.settings.testAttribute(QWebEngineSettings.WebGLEnabled))
+        perf_mode.stateChanged.connect(self.toggle_performance_mode)
+        layout.addWidget(perf_mode)
+
+        # Image loading toggle
+        img_load = QCheckBox("Load Images (Disable to save memory)")
+        img_load.setChecked(self.settings.testAttribute(QWebEngineSettings.AutoLoadImages))
+        img_load.stateChanged.connect(self.toggle_image_loading)
+        layout.addWidget(img_load)
+
+        dialog.setLayout(layout)
+        dialog.exec_()
+
+    def clear_memory(self):
+        self.profile.clearHttpCache()
+        self.profile.clearAllVisitedLinks()
+        self.profile.cookieStore().deleteAllCookies()
+        QWebEngineProfile.defaultProfile().clearAllVisitedLinks()
+        
+        for i in range(self.tabs.count()):
+            self.tabs.widget(i).page().profile().clearHttpCache()
+        
+        QMessageBox.information(self, "Memory Cleared", "Browser memory has been cleared!")
+
+    def toggle_performance_mode(self, state):
+        self.settings.setAttribute(QWebEngineSettings.WebGLEnabled, not state)
+        self.settings.setAttribute(QWebEngineSettings.JavascriptCanOpenWindows, not state)
+        self.settings.setAttribute(QWebEngineSettings.ScrollAnimatorEnabled, not state)
+        
+        for i in range(self.tabs.count()):
+            self.tabs.widget(i).reload()
+
+    def toggle_image_loading(self, state):
+        self.settings.setAttribute(QWebEngineSettings.AutoLoadImages, state)
+        for i in range(self.tabs.count()):
+            self.tabs.widget(i).reload()
+
+    def setup_tab_suspender(self):
+        self.suspend_timer = QTimer(self)
+        self.suspend_timer.timeout.connect(self.check_inactive_tabs)
+        self.suspend_timer.start(60000)  # Check every minute
+        self.tab_last_used = {}
+
+    def check_inactive_tabs(self):
+        current_tab = self.tabs.currentWidget()
+        current_time = QDateTime.currentDateTime()
+        
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if tab != current_tab:
+                if tab not in self.tab_last_used:
+                    self.tab_last_used[tab] = current_time
+                elif self.tab_last_used[tab].secsTo(current_time) > 1800:  # 30 minutes
+                    self.suspend_tab(tab, i)
+
+    def suspend_tab(self, tab, index):
+        if not hasattr(tab, 'suspended'):
+            url = tab.url()
+            tab.suspended = True
+            tab.suspended_url = url
+            blank_page = QUrl('about:blank')
+            tab.setUrl(blank_page)
+            self.tabs.setTabIcon(index, QIcon('images/suspended.png'))
+            self.tabs.setTabText(index, "[Suspended] " + self.tabs.tabText(index))
+
+    def resume_tab(self, tab, index):
+        if hasattr(tab, 'suspended') and tab.suspended:
+            tab.setUrl(tab.suspended_url)
+            tab.suspended = False
+            del tab.suspended_url
+            self.tabs.setTabIcon(index, QIcon())
+            text = self.tabs.tabText(index)
+            self.tabs.setTabText(index, text.replace("[Suspended] ", ""))
+
+    def show_resource_monitor(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Resource Monitor")
+        dialog.setFixedSize(400, 200)
+        layout = QVBoxLayout()
+
+        # Memory usage info
+        import psutil
+        process = psutil.Process()
+        mem_usage = process.memory_info().rss / 1024 / 1024  # MB
+        cpu_usage = process.cpu_percent()
+
+        info_label = QLabel(f"""
+        Memory Usage: {mem_usage:.1f} MB
+        CPU Usage: {cpu_usage}%
+        Active Tabs: {self.tabs.count()}
+        Cache Size: {self.profile.httpCacheMaximumSize() / 1024 / 1024:.1f} MB
+        """)
+        layout.addWidget(info_label)
+
+        dialog.setLayout(layout)
+        dialog.exec_()
+
+    def setup_performance_profiles(self):
+        self.performance_profiles = {
+            'balanced': {
+                'webgl': True,
+                'javascript': True,
+                'images': True,
+                'animations': True
+            },
+            'performance': {
+                'webgl': False,
+                'javascript': True,
+                'images': True,
+                'animations': False
+            },
+            'minimal': {
+                'webgl': False,
+                'javascript': False,
+                'images': False,
+                'animations': False
+            }
+        }
+
+    def apply_performance_profile(self, profile_name):
+        if profile_name in self.performance_profiles:
+            profile = self.performance_profiles[profile_name]
+            self.settings.setAttribute(QWebEngineSettings.WebGLEnabled, profile['webgl'])
+            self.settings.setAttribute(QWebEngineSettings.JavascriptEnabled, profile['javascript'])
+            self.settings.setAttribute(QWebEngineSettings.AutoLoadImages, profile['images'])
+            self.settings.setAttribute(QWebEngineSettings.ScrollAnimatorEnabled, profile['animations'])
+            
+            for i in range(self.tabs.count()):
+                self.tabs.widget(i).reload()
 
 app = QApplication(sys.argv)
 QApplication.setApplicationName("ZiBrowser")
