@@ -1,5 +1,5 @@
 # ZiBrowser
-## A Fast, Stable, and Memory-Efficient Web Browser
+## A Fast, Stable, and Memory-Efficient Web Browser No Ads!!
 
 ![ZiBrowser Logo](https://github.com/user-attachments/assets/49e67c4b-28aa-4158-ace8-0a98492c5e3d)
 
