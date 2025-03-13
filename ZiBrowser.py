@@ -5,7 +5,21 @@ from PyQt5.QtGui import QIcon, QDesktopServices
 from PyQt5.QtWidgets import *
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile
 from PyQt5.QtNetwork import QNetworkProxy
+from PyQt5.QtWebEngineCore import QWebEngineUrlRequestInterceptor
 import os
+
+class AdBlocker(QWebEngineUrlRequestInterceptor):
+    def __init__(self):
+        super().__init__()
+        self.ad_domains = [
+            "ads.", "doubleclick.", "advertising.", "banners.",
+            "analytics.", "trackers.", "pixel."
+        ]
+
+    def interceptRequest(self, info):
+        url = info.requestUrl().toString()
+        if any(ad in url.lower() for ad in self.ad_domains):
+            info.block(True)
 
 class Browser(QMainWindow):
     def __init__(self):
@@ -124,7 +138,7 @@ class Browser(QMainWindow):
         browser.urlChanged.connect(lambda qurl, browser=browser: self.update_urlbar(qurl, browser))
         browser.loadFinished.connect(lambda _, i=i, browser=browser: self.tabs.setTabText(i, browser.page().title()))
 
-        # Connect the downloadRequested signal to the downloadRequested slot
+        # Connect the downloadRequested signal
         browser.page().profile().downloadRequested.connect(self.handle_download)
 
         # Inject JavaScript polyfill for replaceAll
@@ -137,18 +151,11 @@ class Browser(QMainWindow):
             }
         """)
 
-        # Add basic ad blocking
-        ad_domains = [
-            "ads.", "doubleclick.", "advertising.", "banners.",
-            "analytics.", "trackers.", "pixel."
-        ]
-        
-        def url_interceptor(info):
-            url = info.requestUrl().toString()
-            if any(ad in url.lower() for ad in ad_domains):
-                info.block(True)
-        
-        browser.page().profile().setUrlRequestInterceptor(url_interceptor)
+        # Create and set the ad blocker
+        ad_blocker = AdBlocker()
+        browser.page().profile().setUrlRequestInterceptor(ad_blocker)
+
+        return browser
 
     def handle_download(self, download):
         # Ask the user where to save the file
