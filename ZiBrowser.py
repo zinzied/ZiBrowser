@@ -6,7 +6,9 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtWebEngineWidgets import *
 from PyQt5.QtNetwork import QNetworkProxy
 from PyQt5.QtWebEngineCore import *
+from PyQt5.QtWebChannel import QWebChannel  # Add this import
 import os
+import logging
 
 class AdBlocker(QWebEngineUrlRequestInterceptor):
     def __init__(self):
@@ -21,6 +23,23 @@ class AdBlocker(QWebEngineUrlRequestInterceptor):
         if any(ad in url.lower() for ad in self.ad_domains):
             info.block(True)
 
+class BrowserLogger:
+    def __init__(self):
+        self.logger = logging.getLogger('ZiBrowser')
+        self.logger.setLevel(logging.WARNING)
+        
+        handler = logging.FileHandler('zibrowser.log')
+        handler.setFormatter(logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s'
+        ))
+        self.logger.addHandler(handler)
+    
+    def log_js_error(self, message):
+        self.logger.warning(f"JavaScript Error: {message}")
+    
+    def log_video_error(self, message):
+        self.logger.warning(f"Video Error: {message}")
+
 # Add this after your class definitions but before Browser class
 DEFAULT_SEARCH_ENGINES = {
     'Google': 'https://www.google.com/search?q={}',
@@ -30,9 +49,51 @@ DEFAULT_SEARCH_ENGINES = {
     'Ecosia': 'https://www.ecosia.org/search?q={}'
 }
 
+# Add this class to handle JavaScript-Python bridge
+class JavaScriptBridge(QObject):
+    def __init__(self):
+        super().__init__()
+        self.logger = BrowserLogger()
+
+    @pyqtSlot(str)
+    def log(self, message):
+        """Log messages from JavaScript"""
+        print(f"JavaScript: {message}")
+        self.logger.log_js_error(message)
+
+    @pyqtSlot(str, result=str)
+    def processPythonData(self, data):
+        """Process data from JavaScript"""
+        try:
+            return f"Processed by Python: {data.upper()}"
+        except Exception as e:
+            self.log(f"Error processing data: {e}")
+            return str(e)
+
+    @pyqtSlot(str)
+    def saveToFile(self, content):
+        """Save data from JavaScript"""
+        try:
+            with open('browser_data.txt', 'a', encoding='utf-8') as f:
+                f.write(f"{content}\n")
+        except Exception as e:
+            self.log(f"Error saving data: {e}")
+
+    @pyqtSlot(str)
+    def onVideoDownloaded(self, url):
+        QMessageBox.information(None, "Success", f"Video downloaded: {url}")
+
+    @pyqtSlot(str)
+    def onVideoError(self, error):
+        QMessageBox.warning(None, "Error", f"Video error: {error}")
+
 class Browser(QMainWindow):
     def __init__(self):
         super().__init__()
+        
+        # Create toolbar before other UI elements
+        self.toolbar = QToolBar()
+        self.addToolBar(self.toolbar)
 
         # Set up the profile for storing cookies
         self.profile = QWebEngineProfile.defaultProfile()
@@ -155,6 +216,10 @@ class Browser(QMainWindow):
         search_engine_settings_action.triggered.connect(self.show_search_engine_settings)
         settings_menu.addAction(search_engine_settings_action)
 
+        test_bridge_action = QAction(QIcon('images/test.png'), 'Test JS Bridge', self)
+        test_bridge_action.triggered.connect(self.test_python_js_bridge)
+        settings_menu.addAction(test_bridge_action)
+
         settings_btn.setMenu(settings_menu)
         navbar.addWidget(settings_btn)
 
@@ -186,6 +251,20 @@ class Browser(QMainWindow):
         # Configure error handling for WebEngine
         self.page_error_handler = QWebEnginePage(self)
         self.page_error_handler.javaScriptConsoleMessage = self.handle_js_console
+
+        # Add video controls
+        self.add_video_controls()
+
+        # Add video storage support
+        self.setup_video_storage(self.tabs.currentWidget())
+        self.add_video_controls()
+        
+        # Create videos directory
+        self.tabs.currentWidget().page().runJavaScript("""
+            videoHandler.store.getDir('videos', { create: true }, () => {
+                console.log('Videos directory created');
+            });
+        """)
 
     def add_new_tab(self, qurl=None, label="New Tab"):
         if qurl is None or not isinstance(qurl, QUrl):
@@ -230,6 +309,64 @@ class Browser(QMainWindow):
         # Create and set the ad blocker
         ad_blocker = AdBlocker()
         browser.page().profile().setUrlRequestInterceptor(ad_blocker)
+
+        # Inject video compatibility fixes
+        self.inject_video_compatibility_fixes(browser)
+
+        # Configure video settings
+        self.configure_video_settings(browser)
+
+        # Inject media error handler
+        self.inject_media_error_handler(browser)
+        
+        # Enable IndexedDB with fallback
+        self.enable_indexed_db(browser)
+
+        # Initialize QWebChannel properly
+        channel = QWebChannel(browser.page())
+        browser.page().setWebChannel(channel)
+        
+        # Add JavaScript bridge
+        self.js_bridge = JavaScriptBridge()
+        channel.registerObject('python', self.js_bridge)
+        
+        # Inject required QWebChannel.js first
+        browser.page().runJavaScript("""
+            if (!window.qt) {
+                window.qt = { webChannelTransport: null };
+            }
+            
+            window.onload = function() {
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    window.python = channel.objects.python;
+                    
+                    // Define global functions after bridge is established
+                    window.logToPython = function(message) {
+                        python.log(message);
+                    };
+                    
+                    window.processPythonData = function(data) {
+                        return python.processPythonData(data);
+                    };
+                    
+                    window.saveToPython = function(content) {
+                        python.saveToFile(content);
+                    };
+                    
+                    // Signal that bridge is ready
+                    console.log('Python bridge initialized');
+                });
+            };
+        """)
+
+        # Inject interaction examples
+        self.inject_interaction_examples(browser)
+
+        # Inject error handlers
+        self.inject_error_handlers(browser)
+
+        # Setup video storage
+        self.setup_video_storage(browser)
 
         return browser
 
@@ -487,16 +624,50 @@ class Browser(QMainWindow):
             self.tabs.tabBar().moveTab(index, 0)
 
     def open_private_window(self):
-        private_profile = QWebEngineProfile()
-        private_profile.setOffTheRecord(True)
+        # Create a new private profile
+        private_profile = QWebEngineProfile(None)  # Pass None to create a non-persistent profile
         
+        # Create new browser window
         private_window = Browser()
         private_window.setWindowTitle("ZiBrowser (Private Mode)")
+        
+        # Set up the private profile
         private_window.profile = private_profile
+        private_window.profile.setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
+        private_window.profile.setHttpCacheType(QWebEngineProfile.MemoryHttpCache)
+        private_window.profile.setHttpUserAgent(self.profile.httpUserAgent())
         
         # Set a different color scheme for private windows
-        private_window.setStyleSheet("QMainWindow { background-color: #2b0b3f; }")
+        private_window.setStyleSheet("""
+            QMainWindow { 
+                background-color: #2b0b3f; 
+            }
+            QToolBar {
+                background-color: #3b1b4f;
+            }
+            QTabWidget::pane {
+                border-top: 2px solid #4b2b5f;
+            }
+            QTabBar::tab {
+                background-color: #3b1b4f;
+                color: white;
+            }
+            QTabBar::tab:selected {
+                background-color: #4b2b5f;
+            }
+        """)
+        
+        # Show the private window
         private_window.show()
+        
+        # Clear data when window is closed
+        private_window.destroyed.connect(lambda: self.cleanup_private_profile(private_profile))
+
+    def cleanup_private_profile(self, profile):
+        """Clean up the private profile when window is closed"""
+        profile.clearAllVisitedLinks()
+        profile.clearHttpCache()
+        profile.cookieStore().deleteAllCookies()
 
     def handle_fullscreen(self, request):
         request.accept()
@@ -737,6 +908,131 @@ class Browser(QMainWindow):
         """
         browser.page().runJavaScript(polyfills)
 
+    def inject_video_compatibility_fixes(self, browser):
+        fixes = """
+        // Video.js compatibility fixes
+        if (window.videojs) {
+            // Override deprecated extend method
+            videojs.extend = function(target, source) {
+                return Object.assign(target, source);
+            };
+            
+            // Add default text track cleanup
+            const originalAddTrack = videojs.addRemoteTextTrack;
+            videojs.addRemoteTextTrack = function(options, manualCleanup) {
+                return originalAddTrack.call(this, options, true);
+            };
+        }
+
+        // Storage API compatibility
+        if (window.webkitStorageInfo) {
+            console.warn('Using modern storage API');
+            window.webkitStorageInfo = {
+                queryUsageAndQuota: function(type, success, error) {
+                    if (type === window.TEMPORARY) {
+                        navigator.webkitTemporaryStorage.queryUsageAndQuota(success, error);
+                    } else {
+                        navigator.webkitPersistentStorage.queryUsageAndQuota(success, error);
+                    }
+                }
+            };
+        }
+
+        // Handle promise timeouts
+        const originalPromise = window.Promise;
+        window.Promise = function(executor) {
+            return new originalPromise((resolve, reject) => {
+                const timeoutId = setTimeout(() => {
+                    reject(new Error('Promise timed out'));
+                }, 30000);  // 30 second timeout
+
+                executor(
+                    (value) => {
+                        clearTimeout(timeoutId);
+                        resolve(value);
+                    },
+                    (reason) => {
+                        clearTimeout(timeoutId);
+                        reject(reason);
+                    }
+                );
+            });
+        };
+        window.Promise.prototype = originalPromise.prototype;
+        """
+        browser.page().runJavaScript(fixes)
+
+    def inject_media_error_handler(self, browser):
+        """Add better media error handling"""
+        handler = """
+        function handleMediaError(error) {
+            if (error.code === 4) {  // MEDIA_ERR_SRC_NOT_SUPPORTED
+                console.warn('Media format not supported, attempting fallback...');
+                const video = error.target;
+                
+                // Try different formats
+                const formats = ['.mp4', '.webm', '.ogg'];
+                const currentSrc = video.src;
+                const baseSrc = currentSrc.substring(0, currentSrc.lastIndexOf('.'));
+                
+                for (const format of formats) {
+                    const newSrc = baseSrc + format;
+                    if (newSrc !== currentSrc) {
+                        video.src = newSrc;
+                        video.load();
+                        return;
+                    }
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const videos = document.getElementsByTagName('video');
+            for (let video of videos) {
+                video.addEventListener('error', function(e) {
+                    handleMediaError(e.target.error);
+                });
+            }
+        });
+        """
+        browser.page().runJavaScript(handler)
+
+    def enable_indexed_db(self, browser):
+        """Enable and fix IndexedDB"""
+        fix = """
+        // Modern storage handling
+        if (!window.storage) {
+            window.storage = {
+                async get(key) {
+                    try {
+                        if (navigator.storage && navigator.storage.persist) {
+                            await navigator.storage.persist();
+                        }
+                        return localStorage.getItem(key);
+                    } catch (e) {
+                        console.warn('Storage error:', e);
+                        return null;
+                    }
+                },
+                set(key, value) {
+                    try {
+                        localStorage.setItem(key, value);
+                    } catch (e) {
+                        console.warn('Storage error:', e);
+                    }
+                }
+            };
+        }
+        
+        // Handle storage errors
+        window.addEventListener('storage', function(e) {
+            if (e.storageArea === null) {
+                console.warn('Storage quota exceeded');
+            }
+        });
+        """
+        browser.page().runJavaScript(fix)
+
     def handle_js_console(self, level, message, line, source_id):
         """Handle JavaScript console messages"""
         levels = ['Info', 'Warning', 'Error']
@@ -763,8 +1059,248 @@ class Browser(QMainWindow):
         
         return QUrl(url)
 
-app = QApplication(sys.argv)
-QApplication.setApplicationName("ZiBrowser")
-window = Browser()
-window.show()
-app.exec_()
+    def configure_video_settings(self, browser):
+        settings = browser.page().settings()
+        settings.setAttribute(QWebEngineSettings.PlaybackRequiresUserGesture, False)
+        settings.setAttribute(QWebEngineSettings.AllowRunningInsecureContent, True)
+        settings.setAttribute(QWebEngineSettings.PluginsEnabled, True)
+        settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebGLEnabled, True)
+        
+        # Add enhanced video support
+        browser.page().runJavaScript("""
+            document.addEventListener('DOMContentLoaded', function() {
+                const videos = document.getElementsByTagName('video');
+                for (let video of videos) {
+                    // Add source fallback handling
+                    video.addEventListener('error', function(e) {
+                        if (!video.fallbackAttempted) {
+                            video.fallbackAttempted = true;
+                            const sources = Array.from(video.getElementsByTagName('source'));
+                            if (sources.length > 1) {
+                                video.src = sources[1].src;
+                                video.load();
+                            }
+                        }
+                    });
+                    
+                    // Add better timeout handling
+                    let loadingTimeout;
+                    video.addEventListener('waiting', function() {
+                        loadingTimeout = setTimeout(() => {
+                            if (video.readyState === 0) {
+                                video.load();
+                            }
+                        }, 5000);
+                    });
+                    
+                    video.addEventListener('playing', function() {
+                        if (loadingTimeout) {
+                            clearTimeout(loadingTimeout);
+                        }
+                    });
+                }
+            });
+        """)
+
+    def inject_interaction_examples(self, browser):
+        examples = """
+        // Example 1: Send data to Python
+        function sendToPython() {
+            window.logToPython('Hello from JavaScript!');
+        }
+
+        // Example 2: Get data from Python
+        async function getFromPython() {
+            const result = await window.processPythonData('test data');
+            console.log(result);
+        }
+
+        // Example 3: Save data using Python
+        function saveThroughPython() {
+            window.saveToPython('Data saved at: ' + new Date().toISOString());
+        }
+
+        // Example 4: Two-way communication
+        async function twoWayExample() {
+            console.log('Sending to Python...');
+            const processed = await window.processPythonData('hello world');
+            console.log('Received from Python:', processed);
+        }
+
+        // In browser console or webpage JavaScript:
+
+        // Log to Python
+        console.log('This will be logged in Python');
+
+        // Process data through Python
+        window.processPythonData('test').then(result => {
+            console.log('From Python:', result);
+        });
+
+        // Save data using Python
+        window.saveToPython('Some data to save');
+
+        // Two-way communication
+        async function example() {
+            const result = await window.processPythonData('hello');
+            console.log(result);  // Will show "Processed by Python: HELLO"
+        }
+        """
+        browser.page().runJavaScript(examples)
+
+    # Add a test method
+    def test_python_js_bridge(self):
+        self.tabs.currentWidget().page().runJavaScript("""
+            // Test JavaScript-Python communication
+            sendToPython();
+            getFromPython();
+            saveThroughPython();
+            twoWayExample();
+        """)
+
+    def inject_error_handlers(self, browser):
+        """Add comprehensive error handling"""
+        handlers = """
+        // Global error handler
+        window.onerror = function(msg, url, line, col, error) {
+            if (window.python) {
+                python.log(`Error: ${msg} at ${url}:${line}`);
+            }
+            return false;
+        };
+
+        // Promise rejection handler
+        window.onunhandledrejection = function(event) {
+            if (window.python) {
+                python.log(`Unhandled Promise rejection: ${event.reason}`);
+            }
+        };
+
+        // Console error handler
+        const originalError = console.error;
+        console.error = function() {
+            if (window.python) {
+                python.log('Console error: ' + Array.from(arguments).join(' '));
+            }
+            originalError.apply(console, arguments);
+        };
+        """
+        browser.page().runJavaScript(handlers)
+
+    def setup_video_storage(self, browser):
+        # Inject chromestore.js and video handler
+        browser.page().runJavaScript("""
+            // Initialize video storage
+            const videoHandler = new VideoHandler();
+            
+            // Add video download capability
+            async function downloadVideo(videoUrl, filename) {
+                try {
+                    const fileEntry = await videoHandler.saveVideo(videoUrl, filename);
+                    console.log('Video saved:', fileEntry);
+                    return fileEntry.toURL();
+                } catch (e) {
+                    console.error('Error saving video:', e);
+                    throw e;
+                }
+            }
+
+            // Add video playback from storage
+            async function playStoredVideo(filename) {
+                try {
+                    const videoUrl = await videoHandler.getVideoUrl(filename);
+                    const video = document.createElement('video');
+                    video.src = videoUrl;
+                    video.controls = true;
+                    document.body.appendChild(video);
+                } catch (e) {
+                    console.error('Error playing video:', e);
+                    throw e;
+                }
+            }
+        """)
+
+    def add_video_controls(self):
+        # Add download video button
+        download_video_btn = QAction(QIcon('images/download-video.png'), 'Download Video', self)
+        download_video_btn.triggered.connect(self.download_current_video)
+        # Use self.toolbar instead of navbar
+        self.toolbar.addAction(download_video_btn)
+
+        # Add video control buttons
+        volume_up_btn = QAction(QIcon('images/volume-up.png'), 'Volume Up', self)
+        volume_up_btn.triggered.connect(self.volume_up)
+        self.toolbar.addAction(volume_up_btn)
+
+        volume_down_btn = QAction(QIcon('images/volume-down.png'), 'Volume Down', self)
+        volume_down_btn.triggered.connect(self.volume_down)
+        self.toolbar.addAction(volume_down_btn)
+
+        mute_btn = QAction(QIcon('images/mute.png'), 'Mute', self)
+        mute_btn.triggered.connect(self.toggle_mute)
+        self.toolbar.addAction(mute_btn)
+
+    def download_current_video(self):
+        self.tabs.currentWidget().page().runJavaScript("""
+            // Find video element on page
+            const video = document.querySelector('video');
+            if (video && video.src) {
+                const filename = 'video_' + Date.now() + '.mp4';
+                downloadVideo(video.src, filename)
+                    .then(url => {
+                        window.python.log('Video downloaded: ' + url);
+                    })
+                    .catch(err => {
+                        window.python.log('Download error: ' + err);
+                    });
+            }
+        """)
+
+    def volume_up(self):
+        """Increase video volume"""
+        self.tabs.currentWidget().page().runJavaScript("""
+            const videos = document.getElementsByTagName('video');
+            for(var i = 0; i < videos.length; i++) {
+                videos[i].volume = Math.min(videos[i].volume + 0.1, 1.0);
+            }
+        """)
+
+    def volume_down(self):
+        """Decrease video volume"""
+        self.tabs.currentWidget().page().runJavaScript("""
+            const videos = document.getElementsByTagName('video');
+            for(var i = 0; i < videos.length; i++) {
+                videos[i].volume = Math.max(videos[i].volume - 0.1, 0.0);
+            }
+        """)
+
+    def toggle_mute(self):
+        """Toggle video mute state"""
+        self.tabs.currentWidget().page().runJavaScript("""
+            const videos = document.getElementsByTagName('video');
+            for(var i = 0; i < videos.length; i++) {
+                videos[i].muted = !videos[i].muted;
+            }
+        """)
+
+def main():
+    try:
+        # Set High DPI attributes before creating QApplication
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+        
+        # Create application
+        app = QApplication(sys.argv)
+        app.setApplicationName("ZiBrowser")
+        
+        window = Browser()
+        window.show()
+        
+        sys.exit(app.exec_())
+    except Exception as e:
+        print(f"Error starting ZiBrowser: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
