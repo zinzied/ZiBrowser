@@ -1,8 +1,9 @@
 import sys
 from PyQt5.QtCore import *
+from PyQt5.QtCore import QSettings
 from PyQt5.QtGui import QIcon, QDesktopServices
 from PyQt5.QtWidgets import *
-from PyQt5.QtWebEngineWidgets import *
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile
 from PyQt5.QtNetwork import QNetworkProxy
 import os
 
@@ -85,6 +86,22 @@ class Browser(QMainWindow):
         about_action.triggered.connect(self.show_about)
         settings_menu.addAction(about_action)
 
+        private_window_action = QAction(QIcon('images/private.png'), 'New Private Window', self)
+        private_window_action.triggered.connect(self.open_private_window)
+        settings_menu.addAction(private_window_action)
+
+        bookmark_action = QAction(QIcon('images/bookmark.png'), 'Add Bookmark', self)
+        bookmark_action.triggered.connect(self.add_bookmark)
+        settings_menu.addAction(bookmark_action)
+
+        show_bookmarks_action = QAction(QIcon('images/bookmarks.png'), 'Show Bookmarks', self)
+        show_bookmarks_action.triggered.connect(self.show_bookmarks)
+        settings_menu.addAction(show_bookmarks_action)
+
+        dark_mode_action = QAction(QIcon('images/dark-mode.png'), 'Toggle Dark Mode', self)
+        dark_mode_action.triggered.connect(self.toggle_dark_mode)
+        settings_menu.addAction(dark_mode_action)
+
         settings_btn.setMenu(settings_menu)
         navbar.addWidget(settings_btn)
 
@@ -119,6 +136,19 @@ class Browser(QMainWindow):
                 };
             }
         """)
+
+        # Add basic ad blocking
+        ad_domains = [
+            "ads.", "doubleclick.", "advertising.", "banners.",
+            "analytics.", "trackers.", "pixel."
+        ]
+        
+        def url_interceptor(info):
+            url = info.requestUrl().toString()
+            if any(ad in url.lower() for ad in ad_domains):
+                info.block(True)
+        
+        browser.page().profile().setUrlRequestInterceptor(url_interceptor)
 
     def handle_download(self, download):
         # Ask the user where to save the file
@@ -289,6 +319,84 @@ class Browser(QMainWindow):
 
         about_dialog.setLayout(layout)
         about_dialog.exec_()
+
+    def add_bookmark(self):
+        current_url = self.tabs.currentWidget().url().toString()
+        current_title = self.tabs.currentWidget().page().title()
+        
+        settings = QSettings('ZiBrowser', 'Bookmarks')
+        bookmarks = settings.value('bookmarks', {})
+        bookmarks[current_title] = current_url
+        settings.setValue('bookmarks', bookmarks)
+        
+        QMessageBox.information(self, "Bookmark Added", f"'{current_title}' has been bookmarked!")
+
+    def show_bookmarks(self):
+        settings = QSettings('ZiBrowser', 'Bookmarks')
+        bookmarks = settings.value('bookmarks', {})
+        
+        bookmark_dialog = QDialog(self)
+        bookmark_dialog.setWindowTitle("Bookmarks")
+        bookmark_dialog.setFixedSize(600, 400)
+        
+        layout = QVBoxLayout()
+        for title, url in bookmarks.items():
+            bookmark_btn = QPushButton(f"{title}\n{url}")
+            bookmark_btn.clicked.connect(lambda _, u=url: self.tabs.currentWidget().setUrl(QUrl(u)))
+            layout.addWidget(bookmark_btn)
+        
+        bookmark_dialog.setLayout(layout)
+        bookmark_dialog.exec_()
+
+    def toggle_dark_mode(self):
+        dark_css = """
+        QWidget {
+            background-color: #2b2b2b;
+            color: #ffffff;
+        }
+        QLineEdit {
+            background-color: #3b3b3b;
+            border: 1px solid #555555;
+            color: #ffffff;
+        }
+        QToolBar {
+            background-color: #333333;
+            border: none;
+        }
+        """
+        
+        if not hasattr(self, 'dark_mode_enabled'):
+            self.dark_mode_enabled = False
+        
+        self.dark_mode_enabled = not self.dark_mode_enabled
+        if self.dark_mode_enabled:
+            self.setStyleSheet(dark_css)
+        else:
+            self.setStyleSheet("")
+
+    def pin_tab(self, index):
+        if not hasattr(self.tabs, 'pinned_tabs'):
+            self.tabs.pinned_tabs = set()
+        
+        if index in self.tabs.pinned_tabs:
+            self.tabs.pinned_tabs.remove(index)
+            self.tabs.setTabIcon(index, QIcon())
+        else:
+            self.tabs.pinned_tabs.add(index)
+            self.tabs.setTabIcon(index, QIcon('images/pin.png'))
+            self.tabs.tabBar().moveTab(index, 0)
+
+    def open_private_window(self):
+        private_profile = QWebEngineProfile()
+        private_profile.setOffTheRecord(True)
+        
+        private_window = Browser()
+        private_window.setWindowTitle("ZiBrowser (Private Mode)")
+        private_window.profile = private_profile
+        
+        # Set a different color scheme for private windows
+        private_window.setStyleSheet("QMainWindow { background-color: #2b0b3f; }")
+        private_window.show()
 
 app = QApplication(sys.argv)
 QApplication.setApplicationName("ZiBrowser")
