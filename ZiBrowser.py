@@ -1065,14 +1065,32 @@ class Browser(QMainWindow):
     def configure_video_settings(self, browser):
         """Configure video-specific settings"""
         settings = browser.page().settings()
+        
+        # Core settings that are always available
         settings.setAttribute(QWebEngineSettings.PlaybackRequiresUserGesture, False)
         settings.setAttribute(QWebEngineSettings.AllowRunningInsecureContent, True)
         settings.setAttribute(QWebEngineSettings.PluginsEnabled, True)
         settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
         settings.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
         settings.setAttribute(QWebEngineSettings.FullScreenSupportEnabled, True)
-        settings.setAttribute(QWebEngineSettings.AutoplayEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebGLEnabled, True)
+        
+        # Try to set AutoplayEnabled if available (newer versions)
+        try:
+            settings.setAttribute(QWebEngineSettings.AutoplayEnabled, True)
+        except AttributeError:
+            # Fallback for older versions - use JavaScript to enable autoplay
+            browser.page().runJavaScript("""
+                document.addEventListener('DOMContentLoaded', function() {
+                    const videos = document.getElementsByTagName('video');
+                    for(let video of videos) {
+                        video.setAttribute('autoplay', '');
+                        video.play().catch(function(error) {
+                            console.log("Autoplay prevented:", error);
+                        });
+                    }
+                });
+            """)
         
         # Add media codec support
         browser.page().profile().setHttpUserAgent(
@@ -1368,21 +1386,15 @@ class Browser(QMainWindow):
 
 def main():
     try:
-        # Create QApplication first
-        app = QApplication.instance()
-        if app is None:
-            app = QApplication(sys.argv)
+        # Set High DPI attributes BEFORE creating QApplication
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
         
-        # Then set application attributes
+        # Create QApplication after setting attributes
+        app = QApplication(sys.argv)
         app.setApplicationName("ZiBrowser")
         app.setOrganizationName("ZiBrowser")
         app.setOrganizationDomain("zibrowser.com")
-        
-        # Set High DPI support after QApplication creation
-        if hasattr(Qt, 'AA_EnableHighDpiScaling'):
-            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-        if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
-            QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
         
         # Initialize browser window with error handling
         try:
@@ -1392,7 +1404,6 @@ def main():
             QMessageBox.critical(None, "Error", f"Failed to create browser window: {str(e)}")
             return 1
             
-        # Start event loop with exception handling
         return app.exec_()
         
     except Exception as e:
