@@ -368,6 +368,9 @@ class Browser(QMainWindow):
         # Setup video storage
         self.setup_video_storage(browser)
 
+        # Inject video handler
+        self.inject_video_handler(browser)
+
         return browser
 
     def handle_download(self, download):
@@ -1060,48 +1063,22 @@ class Browser(QMainWindow):
         return QUrl(url)
 
     def configure_video_settings(self, browser):
+        """Configure video-specific settings"""
         settings = browser.page().settings()
         settings.setAttribute(QWebEngineSettings.PlaybackRequiresUserGesture, False)
         settings.setAttribute(QWebEngineSettings.AllowRunningInsecureContent, True)
         settings.setAttribute(QWebEngineSettings.PluginsEnabled, True)
         settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
+        settings.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
+        settings.setAttribute(QWebEngineSettings.FullScreenSupportEnabled, True)
+        settings.setAttribute(QWebEngineSettings.AutoplayEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebGLEnabled, True)
         
-        # Add enhanced video support
-        browser.page().runJavaScript("""
-            document.addEventListener('DOMContentLoaded', function() {
-                const videos = document.getElementsByTagName('video');
-                for (let video of videos) {
-                    // Add source fallback handling
-                    video.addEventListener('error', function(e) {
-                        if (!video.fallbackAttempted) {
-                            video.fallbackAttempted = true;
-                            const sources = Array.from(video.getElementsByTagName('source'));
-                            if (sources.length > 1) {
-                                video.src = sources[1].src;
-                                video.load();
-                            }
-                        }
-                    });
-                    
-                    // Add better timeout handling
-                    let loadingTimeout;
-                    video.addEventListener('waiting', function() {
-                        loadingTimeout = setTimeout(() => {
-                            if (video.readyState === 0) {
-                                video.load();
-                            }
-                        }, 5000);
-                    });
-                    
-                    video.addEventListener('playing', function() {
-                        if (loadingTimeout) {
-                            clearTimeout(loadingTimeout);
-                        }
-                    });
-                }
-            });
-        """)
+        # Add media codec support
+        browser.page().profile().setHttpUserAgent(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        )
 
     def inject_interaction_examples(self, browser):
         examples = """
@@ -1284,23 +1261,143 @@ class Browser(QMainWindow):
             }
         """)
 
+    def inject_video_handler(self, browser):
+        """Enhanced video playback handler"""
+        video_handler = """
+        function enhanceVideoPlayback() {
+            // Handle HTML5 video elements
+            function setupHTML5Video(video) {
+                if (video.hasAttribute('enhanced')) return;
+                video.setAttribute('enhanced', 'true');
+                
+                // Force HTML5 playback
+                video.setAttribute('playsinline', '');
+                video.setAttribute('webkit-playsinline', '');
+                
+                // Enable all video formats
+                const types = [
+                    'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
+                    'video/webm; codecs="vp8, vorbis"',
+                    'video/ogg; codecs="theora, vorbis"'
+                ];
+                types.forEach(type => {
+                    const source = document.createElement('source');
+                    source.type = type;
+                    source.src = video.src;
+                    video.appendChild(source);
+                });
+
+                // Handle errors
+                video.addEventListener('error', function(e) {
+                    console.error('Video error:', e);
+                    // Try alternative source
+                    if (video.src && !video.hasAttribute('tried-fallback')) {
+                        video.setAttribute('tried-fallback', 'true');
+                        const originalSrc = video.src;
+                        // Try different format
+                        if (originalSrc.includes('.mp4')) {
+                            video.src = originalSrc.replace('.mp4', '.webm');
+                        } else if (originalSrc.includes('.webm')) {
+                            video.src = originalSrc.replace('.webm', '.mp4');
+                        }
+                        video.load();
+                    }
+                });
+
+                // Handle JavaScript video players
+                if (window.videojs) {
+                    videojs(video, {
+                        html5: {
+                            vhs: { overrideNative: true },
+                            nativeVideoTracks: false,
+                            nativeAudioTracks: false,
+                            nativeTextTracks: false
+                        }
+                    });
+                }
+            }
+
+            // Handle embedded players
+            function setupEmbeddedPlayer(iframe) {
+                if (iframe.hasAttribute('enhanced')) return;
+                iframe.setAttribute('enhanced', 'true');
+                
+                // Add necessary permissions
+                iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media');
+                
+                // Handle common video platforms
+                if (iframe.src.includes('youtube.com')) {
+                    iframe.src = iframe.src.replace('http://', 'https://');
+                    if (!iframe.src.includes('enablejsapi=1')) {
+                        iframe.src += (iframe.src.includes('?') ? '&' : '?') + 'enablejsapi=1';
+                    }
+                }
+            }
+
+            // Enhance existing videos
+            document.querySelectorAll('video').forEach(setupHTML5Video);
+            document.querySelectorAll('iframe').forEach(setupEmbeddedPlayer);
+
+            // Watch for new videos
+            const observer = new MutationObserver(mutations => {
+                mutations.forEach(mutation => {
+                    mutation.addedNodes.forEach(node => {
+                        if (node.nodeName === 'VIDEO') {
+                            setupHTML5Video(node);
+                        } else if (node.nodeName === 'IFRAME') {
+                            setupEmbeddedPlayer(node);
+                        }
+                    });
+                });
+            });
+
+            observer.observe(document.documentElement, {
+                childList: true,
+                subtree: true
+            });
+        }
+
+        // Run enhancement when page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', enhanceVideoPlayback);
+        } else {
+            enhanceVideoPlayback();
+        }
+        """
+        browser.page().runJavaScript(video_handler)
+
 def main():
     try:
-        # Set High DPI attributes before creating QApplication
-        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+        # Create QApplication first
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
         
-        # Create application
-        app = QApplication(sys.argv)
+        # Then set application attributes
         app.setApplicationName("ZiBrowser")
+        app.setOrganizationName("ZiBrowser")
+        app.setOrganizationDomain("zibrowser.com")
         
-        window = Browser()
-        window.show()
+        # Set High DPI support after QApplication creation
+        if hasattr(Qt, 'AA_EnableHighDpiScaling'):
+            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+        if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
+            QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
         
-        sys.exit(app.exec_())
+        # Initialize browser window with error handling
+        try:
+            window = Browser()
+            window.show()
+        except Exception as e:
+            QMessageBox.critical(None, "Error", f"Failed to create browser window: {str(e)}")
+            return 1
+            
+        # Start event loop with exception handling
+        return app.exec_()
+        
     except Exception as e:
-        print(f"Error starting ZiBrowser: {e}")
-        sys.exit(1)
+        print(f"Critical error starting ZiBrowser: {str(e)}")
+        return 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

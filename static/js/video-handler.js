@@ -1,31 +1,55 @@
-class VideoHandler {
+class VideoStore {
     constructor() {
-        this.store = new ChromeStore();
-        // Request 1GB of storage
-        this.store.init(1024 * 1024 * 1024, (store) => {
-            console.log('Video storage initialized');
-        });
+        this.fs = null;
+        this.QUOTA = 1024 * 1024 * 1024; // 1GB storage
     }
 
-    saveVideo(videoUrl, filename) {
+    init() {
         return new Promise((resolve, reject) => {
-            this.store.getAndWrite(
-                videoUrl,
-                `videos/${filename}`,
-                'video/mp4',
-                { create: true },
-                (fileEntry) => {
-                    resolve(fileEntry);
+            window.webkitRequestFileSystem(
+                window.PERSISTENT,
+                this.QUOTA,
+                (fs) => {
+                    this.fs = fs;
+                    resolve(this);
+                },
+                (error) => {
+                    console.error('Error initializing filesystem:', error);
+                    reject(error);
                 }
             );
         });
     }
 
+    saveVideo(videoUrl, filename) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', videoUrl, true);
+            xhr.responseType = 'blob';
+
+            xhr.onload = () => {
+                if (xhr.status === 200) {
+                    const blob = xhr.response;
+                    this.fs.root.getFile(filename, { create: true }, (fileEntry) => {
+                        fileEntry.createWriter((writer) => {
+                            writer.onwriteend = () => resolve(fileEntry);
+                            writer.onerror = (error) => reject(error);
+                            writer.write(blob);
+                        });
+                    });
+                } else {
+                    reject(new Error(`Failed to download video: ${xhr.status}`));
+                }
+            };
+            xhr.send();
+        });
+    }
+
     getVideoUrl(filename) {
         return new Promise((resolve, reject) => {
-            this.store.getFile(`videos/${filename}`, {}, (fileEntry) => {
+            this.fs.root.getFile(filename, {}, (fileEntry) => {
                 resolve(fileEntry.toURL());
-            });
+            }, reject);
         });
     }
 }
