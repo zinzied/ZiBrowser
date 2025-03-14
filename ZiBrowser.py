@@ -371,6 +371,19 @@ class Browser(QMainWindow):
         # Inject video handler
         self.inject_video_handler(browser)
 
+        # Inject bridge
+        self.inject_bridge(browser)
+
+        # Initialize components in correct order
+        self.enable_indexed_db(browser)
+        self.inject_bridge(browser)
+        self.setup_video_storage(browser)
+        self.inject_video_handler(browser)
+        
+        # Configure settings after initialization
+        self.configure_video_settings(browser)
+        self.inject_compatibility_polyfills(browser)
+
         return browser
 
     def handle_download(self, download):
@@ -698,13 +711,15 @@ class Browser(QMainWindow):
 
         # Performance mode toggle
         perf_mode = QCheckBox("Performance Mode (Reduces Memory Usage)")
-        perf_mode.setChecked(not self.settings.testAttribute(QWebEngineSettings.WebGLEnabled))
+        # Fix: Use QWebEngineSettings instead of QSettings
+        perf_mode.setChecked(not QWebEngineSettings.defaultSettings().testAttribute(QWebEngineSettings.WebGLEnabled))
         perf_mode.stateChanged.connect(self.toggle_performance_mode)
         layout.addWidget(perf_mode)
 
         # Image loading toggle
         img_load = QCheckBox("Load Images (Disable to save memory)")
-        img_load.setChecked(self.settings.testAttribute(QWebEngineSettings.AutoLoadImages))
+        # Fix: Use QWebEngineSettings instead of QSettings
+        img_load.setChecked(QWebEngineSettings.defaultSettings().testAttribute(QWebEngineSettings.AutoLoadImages))
         img_load.stateChanged.connect(self.toggle_image_loading)
         layout.addWidget(img_load)
 
@@ -1001,38 +1016,32 @@ class Browser(QMainWindow):
         browser.page().runJavaScript(handler)
 
     def enable_indexed_db(self, browser):
-        """Enable and fix IndexedDB"""
         fix = """
         // Modern storage handling
-        if (!window.storage) {
-            window.storage = {
-                async get(key) {
-                    try {
-                        if (navigator.storage && navigator.storage.persist) {
-                            await navigator.storage.persist();
-                        }
-                        return localStorage.getItem(key);
-                    } catch (e) {
-                        console.warn('Storage error:', e);
-                        return null;
-                    }
-                },
-                set(key, value) {
-                    try {
-                        localStorage.setItem(key, value);
-                    } catch (e) {
-                        console.warn('Storage error:', e);
-                    }
+        const storage = {
+            async init() {
+                if (navigator.storage && navigator.storage.persist) {
+                    await navigator.storage.persist();
                 }
-            };
-        }
-        
-        // Handle storage errors
-        window.addEventListener('storage', function(e) {
-            if (e.storageArea === null) {
-                console.warn('Storage quota exceeded');
+            },
+            async get(key) {
+                try {
+                    return localStorage.getItem(key);
+                } catch (e) {
+                    console.warn('Storage error:', e);
+                    return null;
+                }
+            },
+            set(key, value) {
+                try {
+                    localStorage.setItem(key, value);
+                } catch (e) {
+                    console.warn('Storage error:', e);
+                }
             }
-        });
+        };
+        window.storage = storage;
+        storage.init();
         """
         browser.page().runJavaScript(fix)
 
@@ -1063,10 +1072,10 @@ class Browser(QMainWindow):
         return QUrl(url)
 
     def configure_video_settings(self, browser):
-        """Configure video-specific settings"""
+        """Configure video-specific settings with enhanced compatibility"""
         settings = browser.page().settings()
         
-        # Core settings that are always available
+        # Core settings with enhanced video support
         settings.setAttribute(QWebEngineSettings.PlaybackRequiresUserGesture, False)
         settings.setAttribute(QWebEngineSettings.AllowRunningInsecureContent, True)
         settings.setAttribute(QWebEngineSettings.PluginsEnabled, True)
@@ -1074,29 +1083,54 @@ class Browser(QMainWindow):
         settings.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
         settings.setAttribute(QWebEngineSettings.FullScreenSupportEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebGLEnabled, True)
+        settings.setAttribute(QWebEngineSettings.ShowScrollBars, True)
         
-        # Try to set AutoplayEnabled if available (newer versions)
-        try:
-            settings.setAttribute(QWebEngineSettings.AutoplayEnabled, True)
-        except AttributeError:
-            # Fallback for older versions - use JavaScript to enable autoplay
-            browser.page().runJavaScript("""
+        # Set modern browser profile
+        profile = browser.page().profile()
+        profile.setHttpUserAgent(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36 "
+            "ZiBrowser/1.0"
+        )
+        
+        # Enable modern video codecs
+        browser.page().runJavaScript("""
+            function enhanceVideoSupport() {
+                // Enable MSE & EME
+                window.MediaSource = window.MediaSource || window.WebKitMediaSource;
+                window.MediaKeys = window.MediaKeys || window.WebKitMediaKeys;
+                
                 document.addEventListener('DOMContentLoaded', function() {
                     const videos = document.getElementsByTagName('video');
                     for(let video of videos) {
-                        video.setAttribute('autoplay', '');
-                        video.play().catch(function(error) {
-                            console.log("Autoplay prevented:", error);
+                        // Force modern playback
+                        video.setAttribute('playsinline', '');
+                        video.setAttribute('webkit-playsinline', '');
+                        video.setAttribute('crossorigin', 'anonymous');
+                        
+                        // Enable all possible sources
+                        if (video.src) {
+                            const originalSrc = video.src;
+                            video.innerHTML = `
+                                <source src="${originalSrc}" type="video/mp4">
+                                <source src="${originalSrc}" type="video/webm">
+                                <source src="${originalSrc}" type="application/x-mpegURL">
+                            `;
+                        }
+                        
+                        // Add error recovery
+                        video.addEventListener('error', function(e) {
+                            if (!video.hasAttribute('data-recovered')) {
+                                video.setAttribute('data-recovered', 'true');
+                                video.load();
+                            }
                         });
                     }
                 });
-            """)
-        
-        # Add media codec support
-        browser.page().profile().setHttpUserAgent(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        )
+            }
+            enhanceVideoSupport();
+        """)
 
     def inject_interaction_examples(self, browser):
         examples = """
@@ -1176,7 +1210,7 @@ class Browser(QMainWindow):
         const originalError = console.error;
         console.error = function() {
             if (window.python) {
-                python.log('Console error: ' + Array.from(arguments).join(' '));
+                window.python.log('Console error: ' + Array.from(arguments).join(' '));
             }
             originalError.apply(console, arguments);
         };
@@ -1184,37 +1218,36 @@ class Browser(QMainWindow):
         browser.page().runJavaScript(handlers)
 
     def setup_video_storage(self, browser):
-        # Inject chromestore.js and video handler
-        browser.page().runJavaScript("""
-            // Initialize video storage
-            const videoHandler = new VideoHandler();
-            
-            // Add video download capability
-            async function downloadVideo(videoUrl, filename) {
+        video_handler = """
+        class VideoHandler {
+            constructor() {
+                this.storage = window.storage;
+            }
+
+            async saveVideo(videoUrl, filename) {
                 try {
-                    const fileEntry = await videoHandler.saveVideo(videoUrl, filename);
-                    console.log('Video saved:', fileEntry);
-                    return fileEntry.toURL();
+                    const response = await fetch(videoUrl);
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    this.storage.set(filename, url);
+                    return url;
                 } catch (e) {
                     console.error('Error saving video:', e);
                     throw e;
                 }
             }
 
-            // Add video playback from storage
-            async function playStoredVideo(filename) {
-                try {
-                    const videoUrl = await videoHandler.getVideoUrl(filename);
-                    const video = document.createElement('video');
-                    video.src = videoUrl;
-                    video.controls = true;
-                    document.body.appendChild(video);
-                } catch (e) {
-                    console.error('Error playing video:', e);
-                    throw e;
-                }
+            async getVideoUrl(filename) {
+                return await this.storage.get(filename);
             }
-        """)
+        }
+
+        // Initialize video handler globally
+        if (!window.videoHandler) {
+            window.videoHandler = new VideoHandler();
+        }
+        """
+        browser.page().runJavaScript(video_handler)
 
     def add_video_controls(self):
         # Add download video button
@@ -1383,6 +1416,37 @@ class Browser(QMainWindow):
         }
         """
         browser.page().runJavaScript(video_handler)
+
+    def inject_bridge(self, browser):
+        bridge_init = """
+        window.pythonBridge = {
+            async processPythonData(data) {
+                if (!window.python) {
+                    console.error('Python bridge not initialized');
+                    return null;
+                }
+                return await window.python.processPythonData(data);
+            },
+            
+            log(message) {
+                if (window.python) {
+                    window.python.log(message);
+                }
+            },
+            
+            saveToFile(content) {
+                if (window.python) {
+                    window.python.saveToFile(content);
+                }
+            }
+        };
+
+        // Provide global functions
+        window.processPythonData = (data) => window.pythonBridge.processPythonData(data);
+        window.logToPython = (msg) => window.pythonBridge.log(msg);
+        window.saveToPython = (content) => window.pythonBridge.saveToFile(content);
+        """
+        browser.page().runJavaScript(bridge_init)
 
 def main():
     try:
